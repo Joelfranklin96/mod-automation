@@ -1,9 +1,19 @@
 import pandas as pd
+import os
 from pathlib import Path
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl import Workbook, load_workbook
 from collections import defaultdict
 import math
+
+
+# ─── Paths ────────────────────────────────────────────────────────────────────
+BASE_DIR = Path(r"D:\1_emerjence_work\04_HHS\09_new_mod_automation\Data")
+OUTPUT_DIR = BASE_DIR / "output"
+PR_DIR = BASE_DIR / "pr_files"
+
+overview_file = OUTPUT_DIR / "overview_file.xlsx"
+f_r_output_file = OUTPUT_DIR / "f_r_output.xlsx"
 
 
 def get_fr_pr_numbers(overview_path: Path):
@@ -186,18 +196,16 @@ def get_j1_rate(pr_file: Path, case_number: str, pricing_element: str):
         return None
 
 
-def build_FR(base_path: Path):
+def build_FR():
     """
     Builds the F&R Overview Excel file replicating the official example formatting,
     converts Pricing Element to numeric when possible, and merges duplicate Case Numbers.
     Also creates separate PR tabs before merging.
     """
-
-    overview_path = base_path / "P00070 Overview EXAMPLE.xlsx"
-    fr_items_path = base_path / "PR and CS Examples" / "F&R Items"
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     # Step 1: Get PRs needing F&R
-    fr_pr_list = get_fr_pr_numbers(overview_path)
+    fr_pr_list = get_fr_pr_numbers(overview_file)
     fr_overview_records = []
 
     # Step 2: Gather data
@@ -205,67 +213,60 @@ def build_FR(base_path: Path):
         pr_identifier = pr if "PR" in pr.upper() else f"PR{pr}"
         print(f"Processing {pr_identifier}...")
 
-        mod_folders = [
-            f for f in fr_items_path.iterdir()
-            if f.is_dir() and pr_identifier.lower() in f.name.lower()
+        pr_files = [
+            f for f in PR_DIR.glob(f"{pr_identifier}*.xlsx")
+            if not f.name.startswith("~$")
         ]
+        if not pr_files:
+            print(f"  No PR files found for {pr_identifier} in {PR_DIR}")
+            continue
 
-        for mod_folder in mod_folders:
-            pr_files = list(mod_folder.glob(f"{pr_identifier}*.xlsx"))
-            if not pr_files:
+        for pr_file in pr_files:
+            comps_df = get_comps_sheet(pr_file)
+            if comps_df.empty:
                 continue
 
-            
-            for pr_file in pr_files:
-                comps_df = get_comps_sheet(pr_file)
-                if comps_df.empty:
-                    continue
+            comps_records = extract_comps_data(comps_df)
 
-                comps_records = extract_comps_data(comps_df)
+            for rec in comps_records:
+                price_elem = rec.get("Pricing Element", "")
+                if price_elem is None or (isinstance(price_elem, float) and math.isnan(price_elem)):
+                    price_elem_str = ""
+                else:
+                    try:
+                        price_elem_num = int(float(price_elem))
+                        price_elem_str = str(price_elem_num).zfill(2)
+                    except (ValueError, TypeError):
+                        price_elem_str = str(price_elem).zfill(2)
 
-                for rec in comps_records:
-                    # Pricing Element: preserve leading zeros
-                    price_elem = rec.get("Pricing Element", "")
-                    if price_elem is None or (isinstance(price_elem, float) and math.isnan(price_elem)):
-                        price_elem_str = ""
-                    else:
-                        try:
-                            price_elem_num = int(float(price_elem))
-                            price_elem_str = str(price_elem_num).zfill(2)
-                        except (ValueError, TypeError):
-                            price_elem_str = str(price_elem).zfill(2)
+                case_num = rec.get("Case Number", "")
+                j1_rate_float = get_j1_rate(pr_file, case_num, price_elem_str)
+                comp_rate_float = rec.get("Comp Rate")
 
-                    # Get J1 rate for this case number and pricing element
-                    case_num = rec.get("Case Number", "")
-                    j1_rate_float = get_j1_rate(pr_file, case_num, price_elem_str)
-                    comp_rate_float = rec.get("Comp Rate")
-    
-                    # Calculate Delta
-                    delta_float = None
-                    if j1_rate_float is not None and comp_rate_float is not None:
-                        delta_float = j1_rate_float - comp_rate_float
-                    
-                    # Format all three values
-                    j1_rate = format_currency(j1_rate_float)
-                    comp_rate = format_currency(comp_rate_float)
-                    delta = format_currency(delta_float)
+                delta_float = None
+                if j1_rate_float is not None and comp_rate_float is not None:
+                    delta_float = j1_rate_float - comp_rate_float
 
-                    fr_overview_records.append({
-                        "Type of F&R": "",
-                        "Verizon's Response/HHS Comment": rec.get("Verizon's Response/HHS Comment", ""),
-                        "J.1 Rate": j1_rate,
-                        "Comp Rate": comp_rate,
-                        "Delta": delta,
-                        "Source or Networx Information": rec.get("Source or Networx Information", ""),
-                        "Case Number": rec.get("Case Number", ""),
-                        "Verizon Case Description": rec.get("Verizon Case Description", ""),
-                        "Pricing Element": price_elem_str,
-                        "PR#": pr,                  
-                        "Version": str(version).zfill(2),  
-                        "OpDiv": opdiv,             
-                        "SF30 Description": sf30_desc,  
-                        "12M+ CLIN": determine_12m_clin(rec.get("Verizon Case Description", ""))
-                    })
+                j1_rate = format_currency(j1_rate_float)
+                comp_rate = format_currency(comp_rate_float)
+                delta = format_currency(delta_float)
+
+                fr_overview_records.append({
+                    "Type of F&R": "",
+                    "Verizon's Response/HHS Comment": rec.get("Verizon's Response/HHS Comment", ""),
+                    "J.1 Rate": j1_rate,
+                    "Comp Rate": comp_rate,
+                    "Delta": delta,
+                    "Source or Networx Information": rec.get("Source or Networx Information", ""),
+                    "Case Number": rec.get("Case Number", ""),
+                    "Verizon Case Description": rec.get("Verizon Case Description", ""),
+                    "Pricing Element": price_elem_str,
+                    "PR#": pr,
+                    "Version": str(version).zfill(2),
+                    "OpDiv": opdiv,
+                    "SF30 Description": sf30_desc,
+                    "12M+ CLIN": determine_12m_clin(rec.get("Verizon Case Description", ""))
+                })
 
     if not fr_overview_records:
         print("No F&R records found.")
@@ -419,17 +420,10 @@ def build_FR(base_path: Path):
     ws.auto_filter.ref = f"A1:{ws.cell(row=1, column=len(columns)).coordinate}"
     ws.freeze_panes = "A2"
 
-    output_path = base_path / "F&R_Overview_Output.xlsx"
-    wb.save(output_path)
-    print(f"\nF&R Overview document created with PR tabs and merged duplicates: {output_path}")
-    return output_path
+    wb.save(f_r_output_file)
+    print(f"\nF&R Overview document created with PR tabs and merged duplicates: {f_r_output_file}")
+    return f_r_output_file
 
-'''
-if __name__ == "__main__":
-    base_path = Path.cwd()  # or your target directory path
-    fr_df = build_FR(base_path)
-'''
 
 if __name__ == "__main__":
-    base_path = Path(r"D:\1_emerjence_work\04_HHS\08_demo_mod_automation\Ackshay_automation\01_subprocess\PR and CS Testing Package (For Ackshay)")
-    fr_df = build_FR(base_path)
+    build_FR()

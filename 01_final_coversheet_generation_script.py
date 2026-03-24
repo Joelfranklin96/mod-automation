@@ -9,13 +9,13 @@ from openpyxl.utils import get_column_letter
 
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
-DATA_DIR = (
-    r"D:\1_emerjence_work\04_HHS\08_demo_mod_automation"
-    r"\Joel_automation\04_subprocess\01_data"
-)
-PR_DIR = os.path.join(DATA_DIR, "PR")
-J1_FILE = os.path.join(DATA_DIR, "J.1_Pricing_Spreadsheet_P00070 EXAMPLE.xlsb")
-CLIN_TABLE_FILE = os.path.join(DATA_DIR, "CLIN Table 2026.02.12.xls")
+BASE_DIR = r"D:\1_emerjence_work\04_HHS\09_new_mod_automation\Data"
+INPUT_DIR = os.path.join(BASE_DIR, "input")
+PR_DIR = os.path.join(BASE_DIR, "pr_files")
+OUTPUT_COVERSHEETS_DIR = os.path.join(BASE_DIR, "output", "coversheets")
+
+j1_previous_file = os.path.join(INPUT_DIR, "j1_previous_file.xlsb")
+clin_table_file = os.path.join(INPUT_DIR, "clin_table_file.xls")
 
 
 # ─── Configuration ────────────────────────────────────────────────────────────
@@ -109,15 +109,15 @@ def load_j1_data():
     """Load and combine data from the two J1 catalog sheets."""
     sheet_2b = f"2B_Opt Pd {CURRENT_OP} Catalog"
     sheet_2c = f"2C_Opt Pd {CURRENT_OP + 1}-11 Catalog"
-    j1_2b = pd.read_excel(J1_FILE, sheet_name=sheet_2b, engine="pyxlsb")
-    j1_2c = pd.read_excel(J1_FILE, sheet_name=sheet_2c, engine="pyxlsb")
+    j1_2b = pd.read_excel(j1_previous_file, sheet_name=sheet_2b, engine="pyxlsb")
+    j1_2c = pd.read_excel(j1_previous_file, sheet_name=sheet_2c, engine="pyxlsb")
     print(f"  J1 sheets: '{sheet_2b}' + '{sheet_2c}'")
     return pd.concat([j1_2b, j1_2c], ignore_index=True)
 
 
 def load_clin_lookup():
     """Return dict  { EIS_CLIN_str : Pricing_Method_str }."""
-    clin_df = pd.read_excel(CLIN_TABLE_FILE)
+    clin_df = pd.read_excel(clin_table_file)
     lookup = {}
     for _, row in clin_df.iterrows():
         clin_val = str(row["Clin"]).strip()
@@ -405,6 +405,8 @@ def create_coversheet(output_path, current_op_rows, oy_rows):
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
+    os.makedirs(OUTPUT_COVERSHEETS_DIR, exist_ok=True)
+
     print("Loading J1 data ...")
     j1_data = load_j1_data()
     print(f"  {len(j1_data)} rows from 2B + 2C")
@@ -437,7 +439,9 @@ def main():
             print("  Both sheets empty -- no coversheet needed\n")
             continue
 
-        coversheet_path = os.path.join(PR_DIR, f"{pr_number}_coversheet.xlsx")
+        coversheet_path = os.path.join(
+            OUTPUT_COVERSHEETS_DIR, f"{pr_number}_coversheet.xlsx"
+        )
         create_coversheet(coversheet_path, current_op_rows, oy_rows)
         print(
             f"  Current OP: {len(current_op_rows)} row(s) | "

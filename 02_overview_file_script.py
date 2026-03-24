@@ -7,6 +7,16 @@ import os
 from typing import Dict, List, Any, Optional
 
 
+# ─── Paths ────────────────────────────────────────────────────────────────────
+BASE_DIR = Path(r"D:\1_emerjence_work\04_HHS\09_new_mod_automation\Data")
+INPUT_DIR = BASE_DIR / "input"
+OUTPUT_DIR = BASE_DIR / "output"
+COVERSHEET_FILES_DIR = OUTPUT_DIR / "coversheets"
+
+clin_table_file = INPUT_DIR / "clin_table_file.xls"
+overview_output_file = OUTPUT_DIR / "overview_file.xlsx"
+
+
 def cell_is_checked(val) -> bool:
     """
     Return True if a cell value represents a checked checkbox (linked TRUE).
@@ -219,26 +229,23 @@ def get_standard_notes(sheet) -> str:
 def load_clin_lookup_table(lookup_file_path: str) -> Dict[str, str]:
     """
     Load the CLIN Table lookup file and create a mapping of CLIN to Service Id.
-    Maps from 'Clin' column (A) to 'Service Id' column (G) in the lookup file.
+    Maps from 'Clin' column to 'Service Id' column in the lookup file.
+    Supports both .xls and .xlsx formats via pandas.
     """
     try:
-        wb = load_workbook(lookup_file_path, data_only=True)
-        sheet = wb.active
-        headers = {}
-        for col in range(1, sheet.max_column + 1):
-            header = sheet.cell(row=1, column=col).value
-            if header:
-                headers[str(header).strip()] = col
-        clin_col = headers.get('Clin', headers.get('CLIN', None))
-        service_col = headers.get('Service Id', None)
+        df = pd.read_excel(lookup_file_path)
+        df.columns = df.columns.str.strip()
+
+        clin_col = 'Clin' if 'Clin' in df.columns else ('CLIN' if 'CLIN' in df.columns else None)
+        service_col = 'Service Id' if 'Service Id' in df.columns else None
         if not clin_col or not service_col:
-            wb.close()
             return {}
+
         clin_to_service = {}
-        for row in range(2, sheet.max_row + 1):
-            clin = sheet.cell(row=row, column=clin_col).value
-            service_id = sheet.cell(row=row, column=service_col).value
-            if clin and service_id:
+        for _, row in df.iterrows():
+            clin = row[clin_col]
+            service_id = row[service_col]
+            if pd.notna(clin) and pd.notna(service_id):
                 clin_str = str(clin).strip().upper()
                 service_str = str(service_id).strip()
                 clin_to_service[clin_str] = service_str
@@ -249,9 +256,8 @@ def load_clin_lookup_table(lookup_file_path: str) -> Dict[str, str]:
                         if number_part.isdigit():
                             number_without_zeros = str(int(number_part))
                             clin_to_service[prefix + number_without_zeros] = service_str
-                    except:
+                    except Exception:
                         pass
-        wb.close()
         return clin_to_service
     except Exception:
         return {}
@@ -625,28 +631,27 @@ def create_overview(coversheet_files: List[Path], output_path: str = 'overview_o
 
 def main():
     """Main function to process coversheet files."""
-    coversheet_dir = Path(r"D:\1_emerjence_work\04_HHS\09_new_mod_automation\Data\Coversheets")
-    
-    if coversheet_dir.exists():
-        coversheet_files = list(coversheet_dir.glob("*.xlsx"))
-        coversheet_files = [f for f in coversheet_files if 'overview' not in f.name.lower()]
-        
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    if COVERSHEET_FILES_DIR.exists():
+        coversheet_files = list(COVERSHEET_FILES_DIR.glob("*.xlsx"))
+        coversheet_files = [f for f in coversheet_files
+                           if 'overview' not in f.name.lower()
+                           and not f.name.startswith("~$")]
+
         if coversheet_files:
-            output_path = Path(r"D:\1_emerjence_work\04_HHS\09_new_mod_automation\Data") / "overview_file.xlsx"
-            lookup_dir = Path(r"D:\1_emerjence_work\04_HHS\09_new_mod_automation\Data")
-            lookup_path = lookup_dir / "CLIN Table 2024.10.04.xlsx"
-            
-            if lookup_path.exists():
-                df = create_overview(coversheet_files, str(output_path), str(lookup_path))
+            if clin_table_file.exists():
+                df = create_overview(coversheet_files, str(overview_output_file),
+                                     str(clin_table_file))
             else:
                 print("WARNING: CLIN lookup file not found. Services will be blank.")
-                df = create_overview(coversheet_files, str(output_path), None)
-            
+                df = create_overview(coversheet_files, str(overview_output_file), None)
+
             print("\nProcess completed successfully!")
         else:
-            print(f"No Excel files found in {coversheet_dir}")
+            print(f"No Excel files found in {COVERSHEET_FILES_DIR}")
     else:
-        print(f"Directory not found: {coversheet_dir}")
+        print(f"Directory not found: {COVERSHEET_FILES_DIR}")
         print("Please ensure the directory path is correct.")
 
 

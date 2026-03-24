@@ -1,10 +1,12 @@
 """
-J1_Example File Automation
-This notebook reads from the Catalog sheet in the Build file and appends entries
-to the appropriate sheets in the J1_Example file based on TO Period.
+J1 Previous File Automation
+This script reads from the Catalog sheet in the Build file and appends entries
+to the appropriate sheets in the J1 previous file based on TO Period.
+It copies the original j1_previous_file from input/ to output/ before modifying.
 """
 
 import pandas as pd
+import shutil
 from pathlib import Path
 from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -12,6 +14,16 @@ from datetime import datetime
 import warnings
 
 warnings.filterwarnings('ignore')
+
+
+# ─── Paths ────────────────────────────────────────────────────────────────────
+BASE_DIR = Path(r"D:\1_emerjence_work\04_HHS\09_new_mod_automation\Data")
+INPUT_DIR = BASE_DIR / "input"
+OUTPUT_DIR = BASE_DIR / "output"
+
+build_file = OUTPUT_DIR / "build_file.xlsx"
+j1_previous_file_input = INPUT_DIR / "j1_previous_file.xlsb"
+j1_previous_file = OUTPUT_DIR / "j1_previous_file.xlsb"
 
 
 # ============================================================
@@ -71,15 +83,6 @@ def get_current_opt_pd():
 
 # Store the current Opt Pd as a global variable
 CURRENT_OPT_PD = get_current_opt_pd()
-
-
-# ============================================================
-# CONFIGURATION
-# ============================================================
-
-# Define file paths - UPDATE THESE
-BUILD_FILE_PATH = Path(r"D:\1_emerjence_work\04_HHS\08_demo_mod_automation\Ackshay_automation\03_subprocess\P00070 Build EXAMPLE.xlsx")
-J1_EXAMPLE_FILE_PATH = Path(r"D:\1_emerjence_work\04_HHS\08_demo_mod_automation\Ackshay_automation\03_subprocess\J1_Example.xlsx")
 
 
 # ============================================================
@@ -218,12 +221,11 @@ def format_date_value(date_value):
         
         # If it's a datetime, format it
         if isinstance(date_value, pd.Timestamp):
-            return date_value.strftime('%-m/%-d/%y')  # For Unix/Mac
-            # For Windows, use: return date_value.strftime('%#m/%#d/%y')
+            return date_value.strftime('%#m/%#d/%y')
         
         # Try to convert to datetime
         date_obj = pd.to_datetime(date_value)
-        return date_obj.strftime('%-m/%-d/%y')
+        return date_obj.strftime('%#m/%#d/%y')
         
     except:
         # If all else fails, return as string
@@ -441,61 +443,68 @@ def append_to_j1_sheet(j1_file_path, sheet_name, entries_df, start_price_id):
 
 def main():
     """Main function to execute the J1_Example automation."""
-    
-    print("="*60)
-    print("J1_EXAMPLE FILE AUTOMATION")
-    print("="*60)
-    print(f"Build File: {BUILD_FILE_PATH}")
-    print(f"J1 Example File: {J1_EXAMPLE_FILE_PATH}")
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Copy the pristine j1_previous_file from input/ to output/ before modifying
+    if not j1_previous_file_input.exists():
+        print(f"Error: J1 previous file not found at {j1_previous_file_input}")
+        return
+    shutil.copy2(j1_previous_file_input, j1_previous_file)
+    print(f"Copied J1 previous file to: {j1_previous_file}")
+
+    print("=" * 60)
+    print("J1 PREVIOUS FILE AUTOMATION")
+    print("=" * 60)
+    print(f"Build File (Catalog source): {build_file}")
+    print(f"J1 Previous File: {j1_previous_file}")
     print(f"\nCurrent Option Period: {CURRENT_OPT_PD}")
-    print("="*60)
-    
+    print("=" * 60)
+
     # Step 1: Read Catalog from Build file
     print("\nStep 1: Reading Catalog sheet from Build file...")
-    catalog_df = read_catalog_from_build(BUILD_FILE_PATH)
-    
+    catalog_df = read_catalog_from_build(build_file)
+
     if catalog_df.empty:
         print("Error: No data found in Catalog sheet")
         return
-    
+
     # Step 2: Get maximum Price Id
     print("\nStep 2: Finding maximum Price Id...")
-    max_price_id = get_max_price_id(J1_EXAMPLE_FILE_PATH)
+    max_price_id = get_max_price_id(j1_previous_file)
     next_price_id = max_price_id + 1
-    
+
     # Step 3: Categorize entries by TO Period
     print("\nStep 3: Categorizing entries by TO Period...")
     categorized = categorize_by_to_period(catalog_df)
-    
-    # Step 4: Append to Opt Pd 5 sheet first
+
+    # Step 4: Append to current OP sheet
     print("\nStep 4: Appending entries to sheets...")
     next_price_id = append_to_j1_sheet(
-        J1_EXAMPLE_FILE_PATH,
-        '2B_Opt Pd 5 Catalog',
+        j1_previous_file,
+        f'2B_Opt Pd {CURRENT_OPT_PD} Catalog',
         categorized['pd5'],
         next_price_id
     )
-    
-    # Step 5: Append to Opt Pd 6-11 sheet
+
+    # Step 5: Append to future OP sheet
     next_price_id = append_to_j1_sheet(
-        J1_EXAMPLE_FILE_PATH,
-        '2C_Opt Pd 6-11 Catalog',
+        j1_previous_file,
+        f'2C_Opt Pd {CURRENT_OPT_PD + 1}-11 Catalog',
         categorized['pd6_11'],
         next_price_id
     )
-    
+
     # Final summary
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("AUTOMATION COMPLETE")
-    print("="*60)
+    print("=" * 60)
     print(f"Total entries processed: {len(catalog_df)}")
-    print(f"  - TO Period 5: {len(categorized['pd5'])} entries")
-    print(f"  - TO Period 6-11: {len(categorized['pd6_11'])} entries")
+    print(f"  - TO Period {CURRENT_OPT_PD}: {len(categorized['pd5'])} entries")
+    print(f"  - TO Period {CURRENT_OPT_PD + 1}-11: {len(categorized['pd6_11'])} entries")
     print(f"Final Price Id: {next_price_id - 1}")
-    print(f"J1 Example file updated: {J1_EXAMPLE_FILE_PATH}")
-    print("="*60)
+    print(f"J1 previous file updated: {j1_previous_file}")
+    print("=" * 60)
 
 
-# Run the automation
 if __name__ == "__main__":
     main()

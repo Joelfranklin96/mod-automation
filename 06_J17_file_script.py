@@ -1,19 +1,24 @@
+import os
 import pandas as pd
 import re
+from pathlib import Path
 from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 
-# Global variables
+
+# ─── Paths ────────────────────────────────────────────────────────────────────
+BASE_DIR = Path(r"D:\1_emerjence_work\04_HHS\09_new_mod_automation\Data")
+INPUT_DIR = BASE_DIR / "input"
+OUTPUT_DIR = BASE_DIR / "output"
+
+j17_file = INPUT_DIR / "j17_file.xlsx"
+j1_previous_file = OUTPUT_DIR / "j1_previous_file.xlsb"
+eis_billing_file = INPUT_DIR / "EIS Billing Detail - FEB 2026 - HHS EIS PMO 75P00120F80177.xlsx"
+j17_updated_file = OUTPUT_DIR / "j17_updated_file.xlsx"
+
+# ─── Configuration ────────────────────────────────────────────────────────────
 current_option_period = 5
 current_month = "December"
-
-# File paths
-# data_dir = r"C:\1_hhs_work\2_verizon\1_mod_process\1_mod_process\03_subprocess\02_data"
-data_dir = r"D:\1_emerjence_work\04_HHS\08_demo_mod_automation\Joel_automation\03_subprocess\02_data"
-j17_file = f"{data_dir}\\J.17 Subscription CLINs and Terms - P00072.xlsx"
-draft_j1_file = f"{data_dir}\\Draft_J.1_Pricing_Spreadsheet_P00072.xlsb"
-eis_billing_file = f"{data_dir}\\EIS Billing Detail - OCT 2025 - HHS EIS PMO 75P00120F80177.xlsx"
-output_file = f"{data_dir}\\J.17 Subscription CLINs and Terms - P00072_Updated.xlsx"
 
 
 def extract_month_from_filename(filename):
@@ -38,7 +43,9 @@ def load_existing_j17_data(filepath):
 
 def load_draft_j1_catalog(filepath, option_period):
     sheet_name = get_catalog_sheet_name(option_period)
-    df = pd.read_excel(filepath, sheet_name=sheet_name, engine='pyxlsb')
+    filepath_str = str(filepath)
+    engine = 'pyxlsb' if filepath_str.endswith('.xlsb') else None
+    df = pd.read_excel(filepath, sheet_name=sheet_name, engine=engine)
     return df
 
 
@@ -313,28 +320,38 @@ def save_to_excel(catalog_df, active_df, expired_df, original_file, output_path,
 
 
 def main():
-    month_value = extract_month_from_filename(eis_billing_file)
-    
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    month_value = extract_month_from_filename(str(eis_billing_file))
+
     catalog_df, active_df, expired_df = load_existing_j17_data(j17_file)
-    
-    draft_j1_df = load_draft_j1_catalog(draft_j1_file, current_option_period)
-    
+
+    draft_j1_df = load_draft_j1_catalog(j1_previous_file, current_option_period)
+
     new_catalog_rows_df = get_new_catalog_rows(catalog_df, draft_j1_df)
-    
+
     updated_catalog_df = pd.concat([catalog_df, new_catalog_rows_df], ignore_index=True)
-    
+
     bi_df, ba_df = load_billing_data(eis_billing_file)
-    
+
     bi_merged = vlookup_bi_with_catalog(bi_df, updated_catalog_df)
     ba_merged = vlookup_ba_with_catalog(ba_df, updated_catalog_df)
-    
+
     new_active_rows_df = create_active_subscriptions_rows(bi_merged, ba_merged, month_value)
-    
-    expired_rows, remaining_active_df, expired_row_indices = identify_expired_subscriptions(active_df, current_month)
-    
+
+    expired_rows, remaining_active_df, expired_row_indices = identify_expired_subscriptions(
+        active_df, current_month
+    )
+
     final_expired_df = expired_rows.copy()
-    
-    save_to_excel(updated_catalog_df, remaining_active_df, final_expired_df, j17_file, output_file, new_catalog_rows_df, new_active_rows_df, expired_row_indices)
+
+    save_to_excel(
+        updated_catalog_df, remaining_active_df, final_expired_df,
+        j17_file, j17_updated_file,
+        new_catalog_rows_df, new_active_rows_df, expired_row_indices
+    )
+
+    print(f"J.17 updated file created: {j17_updated_file}")
 
 
 if __name__ == "__main__":

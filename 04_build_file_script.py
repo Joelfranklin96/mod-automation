@@ -2,13 +2,14 @@
 """
 Combined automation script for Build File creation.
 This script:
-1. Processes PR and Coversheet files to create J.1 Automated sheet
-2. Creates Catalog sheet from J.1 data
-
+1. Copies the build file from input/ to output/ (preserving the original)
+2. Processes PR and Coversheet files to create J.1 Automated sheet
+3. Creates Catalog sheet from J.1 data
 """
 
 import pandas as pd
 import re
+import shutil
 from pathlib import Path
 import warnings
 from typing import Dict, List, Optional, Tuple
@@ -18,6 +19,17 @@ from openpyxl.utils import get_column_letter
 
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
+
+
+# ─── Paths ────────────────────────────────────────────────────────────────────
+BASE_DIR = Path(r"D:\1_emerjence_work\04_HHS\09_new_mod_automation\Data")
+INPUT_DIR = BASE_DIR / "input"
+OUTPUT_DIR = BASE_DIR / "output"
+PR_DIR = BASE_DIR / "pr_files"
+COVERSHEET_FILES_DIR = OUTPUT_DIR / "coversheets"
+
+build_file_input = INPUT_DIR / "build_file.xlsx"
+build_file_output = OUTPUT_DIR / "build_file.xlsx"
 
 
 # ============================================================
@@ -1309,72 +1321,72 @@ def create_catalog_sheet(build_file_path: Path):
 
 def main():
     """Main function to run both J.1 and Catalog automation."""
-    
-    # Define paths - UPDATE THESE PATHS AS NEEDED
-    # PR_PATH = Path(r"/Users/ackshay/Desktop/Fall_Internship/Mod_process_automation/subprocess 3 /Mock_Data/PR")
-    PR_PATH = Path(r"D:\1_emerjence_work\04_HHS\08_demo_mod_automation\Ackshay_automation\02_subprocess\Mock_Data\PR")
-    # COVERSHEET_PATH = Path(r"/Users/ackshay/Desktop/Fall_Internship/Mod_process_automation/subprocess 3 /Mock_Data/Coversheets")
-    COVERSHEET_PATH = Path(r"D:\1_emerjence_work\04_HHS\08_demo_mod_automation\Ackshay_automation\02_subprocess\Mock_Data\Coversheets")
-    # BUILD_FILE_PATH = Path(r"/Users/ackshay/Desktop/Fall_Internship/Mod_process_automation/subprocess 3 /P00070_Build_Mock.xlsx")
-    BUILD_FILE_PATH = Path(r"D:\1_emerjence_work\04_HHS\08_demo_mod_automation\Ackshay_automation\02_subprocess\P00070_Build_Mock.xlsx")
-    
-    print("="*60)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Copy the pristine build file from input/ to output/ before modifying
+    if not build_file_input.exists():
+        print(f"Error: Build file not found at {build_file_input}")
+        return {'j1_rows': 0, 'catalog_rows': 0, 'success': False}
+
+    shutil.copy2(build_file_input, build_file_output)
+    print(f"Copied build file to: {build_file_output}")
+
+    print("=" * 60)
     print("COMBINED AUTOMATION SCRIPT")
-    print("="*60)
-    print(f"PR Path: {PR_PATH}")
-    print(f"Coversheet Path: {COVERSHEET_PATH}")
-    print(f"Build File Path: {BUILD_FILE_PATH}")
-    print("="*60)
-    
+    print("=" * 60)
+    print(f"PR Path: {PR_DIR}")
+    print(f"Coversheet Path: {COVERSHEET_FILES_DIR}")
+    print(f"Build File Path: {build_file_output}")
+    print("=" * 60)
+
     # ============================================================
     # STEP 1: J.1 SHEET AUTOMATION
     # ============================================================
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("STEP 1: PROCESSING PR AND COVERSHEET FILES")
-    print("="*60)
-    
-    # Process all coversheets with pricing method consideration
-    processed_data = process_all_coversheets(COVERSHEET_PATH, PR_PATH, BUILD_FILE_PATH)
-    
-    # Write results to build file
-    j1_success = write_to_build_file(processed_data, BUILD_FILE_PATH)
-    
+    print("=" * 60)
+
+    processed_data = process_all_coversheets(
+        COVERSHEET_FILES_DIR, PR_DIR, build_file_output
+    )
+
+    j1_success = write_to_build_file(processed_data, build_file_output)
+
     if not j1_success:
         print("\nError: J.1 automation failed. Stopping execution.")
-        return {
-            'j1_rows': 0,
-            'catalog_rows': 0,
-            'success': False
-        }
-    
+        return {'j1_rows': 0, 'catalog_rows': 0, 'success': False}
+
     # ============================================================
     # STEP 2: CATALOG SHEET AUTOMATION
     # ============================================================
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("STEP 2: CREATING CATALOG SHEET FROM J.1 DATA")
-    print("="*60)
-    
-    # Create catalog sheet from J.1 data
-    catalog_result = create_catalog_sheet(BUILD_FILE_PATH)
-    
+    print("=" * 60)
+
+    catalog_result = create_catalog_sheet(build_file_output)
+
     catalog_success = catalog_result is not None
-    
+
     # ============================================================
     # FINAL SUMMARY
     # ============================================================
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("AUTOMATION COMPLETE - FINAL SUMMARY")
-    print("="*60)
-    print(f"J.1 Automated sheet: {len(processed_data) if not processed_data.empty else 0} rows")
-    print(f"Catalog sheet: Created successfully" if catalog_success else "✗ Catalog sheet: Failed")
-    print(f"Build file location: {BUILD_FILE_PATH}")
-    print(f"Overall Status: {'SUCCESS' if (j1_success and catalog_success) else 'PARTIAL SUCCESS' if j1_success else 'FAILED'}")
-    print("="*60)
-    
+    print("=" * 60)
+    j1_row_count = len(processed_data) if not processed_data.empty else 0
+    print(f"J.1 Automated sheet: {j1_row_count} rows")
+    print("Catalog sheet: Created successfully" if catalog_success
+          else "Catalog sheet: Failed")
+    print(f"Build file location: {build_file_output}")
+    status = ('SUCCESS' if (j1_success and catalog_success)
+              else 'PARTIAL SUCCESS' if j1_success else 'FAILED')
+    print(f"Overall Status: {status}")
+    print("=" * 60)
+
     return {
-        'j1_rows': len(processed_data) if not processed_data.empty else 0,
+        'j1_rows': j1_row_count,
         'catalog_success': catalog_success,
-        'build_file_location': str(BUILD_FILE_PATH),
+        'build_file_location': str(build_file_output),
         'success': j1_success and catalog_success
     }
 
