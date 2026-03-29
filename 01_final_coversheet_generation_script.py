@@ -14,7 +14,7 @@ INPUT_DIR = os.path.join(BASE_DIR, "input")
 PR_DIR = os.path.join(BASE_DIR, "pr_files")
 OUTPUT_COVERSHEETS_DIR = os.path.join(BASE_DIR, "output", "coversheets")
 
-j1_previous_file = os.path.join(INPUT_DIR, "j1_previous_file.xlsb")
+j1_previous_file = os.path.join(INPUT_DIR, "j1_previous_file.xlsx")
 clin_table_file = os.path.join(INPUT_DIR, "clin_table_file.xls")
 
 
@@ -109,8 +109,8 @@ def load_j1_data():
     """Load and combine data from the two J1 catalog sheets."""
     sheet_2b = f"2B_Opt Pd {CURRENT_OP} Catalog"
     sheet_2c = f"2C_Opt Pd {CURRENT_OP + 1}-11 Catalog"
-    j1_2b = pd.read_excel(j1_previous_file, sheet_name=sheet_2b, engine="pyxlsb")
-    j1_2c = pd.read_excel(j1_previous_file, sheet_name=sheet_2c, engine="pyxlsb")
+    j1_2b = pd.read_excel(j1_previous_file, sheet_name=sheet_2b)
+    j1_2c = pd.read_excel(j1_previous_file, sheet_name=sheet_2c)
     print(f"  J1 sheets: '{sheet_2b}' + '{sheet_2c}'")
     return pd.concat([j1_2b, j1_2c], ignore_index=True)
 

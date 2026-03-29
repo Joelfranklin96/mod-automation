@@ -12,7 +12,7 @@ INPUT_DIR = BASE_DIR / "input"
 OUTPUT_DIR = BASE_DIR / "output"
 
 j17_file = INPUT_DIR / "j17_file.xlsx"
-j1_previous_file = OUTPUT_DIR / "j1_previous_file.xlsb"
+j1_previous_file = OUTPUT_DIR / "j1_previous_file.xlsx"
 eis_billing_file = INPUT_DIR / "EIS Billing Detail - FEB 2026 - HHS EIS PMO 75P00120F80177.xlsx"
 j17_updated_file = OUTPUT_DIR / "j17_updated_file.xlsx"
 

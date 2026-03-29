@@ -22,8 +22,8 @@ INPUT_DIR = BASE_DIR / "input"
 OUTPUT_DIR = BASE_DIR / "output"
 
 build_file = OUTPUT_DIR / "build_file.xlsx"
-j1_previous_file_input = INPUT_DIR / "j1_previous_file.xlsb"
-j1_previous_file = OUTPUT_DIR / "j1_previous_file.xlsb"
+j1_previous_file_input = INPUT_DIR / "j1_previous_file.xlsx"
+j1_previous_file = OUTPUT_DIR / "j1_previous_file.xlsx"
 
 
 # ============================================================

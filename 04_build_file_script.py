@@ -268,9 +268,8 @@ def filter_approved_items(coversheet_data: pd.DataFrame) -> pd.DataFrame:
     if coversheet_data.empty:
         return pd.DataFrame()
     
-    # Filter for approved items only - using correct column name with space
     approved_items = coversheet_data[
-        coversheet_data['OpDiv Approval (Yes/ No)'].str.upper() == 'YES'
+        coversheet_data['OpDiv Approval (Yes/ No)'].astype(str).str.strip().str.upper() == 'YES'
     ].copy()
     
     # Add converted TO Period for matching
@@ -320,7 +319,11 @@ def match_coversheet_to_pr_with_pricing(approved_items: pd.DataFrame,
         to_period_match = coversheet_row['TO_Period_Match']
         clin_match = coversheet_row['CLIN']
         description_match = coversheet_row['CLIN Description']
-        price_match = coversheet_row['HHS Price per CLIN ($)']
+        price_match_raw = coversheet_row['HHS Price per CLIN ($)']
+        try:
+            price_match = round(float(price_match_raw), 2)
+        except (ValueError, TypeError):
+            price_match = 0.0
         
         # Get pricing method for this CLIN
         pricing_method = pricing_map.get(str(clin_match).strip())
@@ -330,7 +333,7 @@ def match_coversheet_to_pr_with_pricing(approved_items: pd.DataFrame,
             (pr_data['TO Period'] == to_period_match) &
             (pr_data['EIS CLIN'] == clin_match) &
             (pr_data['EIS CLIN Name'] == description_match) &
-            (pr_data['HHS Price'].round(2) == round(price_match, 2))
+            (pr_data['HHS Price'].round(2) == price_match)
         )
         
         # If there's a pricing method that requires additional matching
