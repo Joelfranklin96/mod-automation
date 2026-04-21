@@ -12,7 +12,8 @@ INPUT_DIR = BASE_DIR / "input"
 OUTPUT_DIR = BASE_DIR / "output"
 
 j17_file = INPUT_DIR / "j17_file.xlsx"
-j1_previous_file = OUTPUT_DIR / "j1_previous_file.xlsx"
+j1_previous_file_input = INPUT_DIR / "j1_previous_file.xlsx"
+j1_current_file = OUTPUT_DIR / "j1_current_file.xlsx"
 eis_billing_file = INPUT_DIR / "EIS Billing Detail - FEB 2026 - HHS EIS PMO 75P00120F80177.xlsx"
 j17_updated_file = OUTPUT_DIR / "j17_updated_file.xlsx"
 
@@ -56,7 +57,7 @@ def load_billing_data(filepath):
 
 
 def filter_subscription_rows(df):
-    keywords = ['1 Year', '12 Month', 'Annual', 'License', 'Subscription']
+    keywords = ['Year', '12 Month', 'Annual', 'License', 'Subscription', 'Duration']
     pattern = '|'.join(keywords)
     mask = df['Verizon Case Description'].astype(str).str.contains(pattern, case=False, na=False)
     return df[mask].copy()
@@ -326,7 +327,13 @@ def main():
 
     catalog_df, active_df, expired_df = load_existing_j17_data(j17_file)
 
-    draft_j1_df = load_draft_j1_catalog(j1_previous_file, current_option_period)
+    sheet_name = get_catalog_sheet_name(current_option_period)
+    original_j1_df = pd.read_excel(j1_previous_file_input, sheet_name=sheet_name)
+    original_row_count = len(original_j1_df)
+
+    full_j1_df = load_draft_j1_catalog(j1_current_file, current_option_period)
+    draft_j1_df = full_j1_df.iloc[original_row_count:].copy()
+    print(f"J1 current file: {len(full_j1_df)} total rows, {original_row_count} from prior mods, {len(draft_j1_df)} from current mod")
 
     new_catalog_rows_df = get_new_catalog_rows(catalog_df, draft_j1_df)
 

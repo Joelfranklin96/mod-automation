@@ -1,8 +1,8 @@
 """
-J1 Previous File Automation
+J1 Current File Automation
 This script reads from the Catalog sheet in the Build file and appends entries
-to the appropriate sheets in the J1 previous file based on TO Period.
-It copies the original j1_previous_file from input/ to output/ before modifying.
+to the appropriate sheets in the J1 file based on TO Period.
+It copies the original j1_previous_file from input/ to output/ as j1_current_file before modifying.
 """
 
 import pandas as pd
@@ -23,7 +23,7 @@ OUTPUT_DIR = BASE_DIR / "output"
 
 build_file = OUTPUT_DIR / "build_file.xlsx"
 j1_previous_file_input = INPUT_DIR / "j1_previous_file.xlsx"
-j1_previous_file = OUTPUT_DIR / "j1_previous_file.xlsx"
+j1_current_file = OUTPUT_DIR / "j1_current_file.xlsx"
 
 
 # ============================================================
@@ -203,32 +203,29 @@ def read_catalog_from_build(build_file_path):
 
 def format_date_value(date_value):
     """
-    Format date value to ensure it's properly copied.
+    Format date value to DD-MM-YYYY format.
     
     Args:
         date_value: Date value in various formats
         
     Returns:
-        Formatted date string or original value
+        Formatted date string in DD-MM-YYYY format or original value
     """
     if pd.isna(date_value) or date_value == "":
         return ""
     
     try:
-        # If it's already a string, return it
         if isinstance(date_value, str):
-            return date_value
+            date_obj = pd.to_datetime(date_value)
+            return date_obj.strftime('%d-%m-%Y')
         
-        # If it's a datetime, format it
         if isinstance(date_value, pd.Timestamp):
-            return date_value.strftime('%#m/%#d/%y')
+            return date_value.strftime('%d-%m-%Y')
         
-        # Try to convert to datetime
         date_obj = pd.to_datetime(date_value)
-        return date_obj.strftime('%#m/%#d/%y')
+        return date_obj.strftime('%d-%m-%Y')
         
     except:
-        # If all else fails, return as string
         return str(date_value)
 
 
@@ -449,14 +446,14 @@ def main():
     if not j1_previous_file_input.exists():
         print(f"Error: J1 previous file not found at {j1_previous_file_input}")
         return
-    shutil.copy2(j1_previous_file_input, j1_previous_file)
-    print(f"Copied J1 previous file to: {j1_previous_file}")
+    shutil.copy2(j1_previous_file_input, j1_current_file)
+    print(f"Copied J1 previous file to: {j1_current_file}")
 
     print("=" * 60)
     print("J1 PREVIOUS FILE AUTOMATION")
     print("=" * 60)
     print(f"Build File (Catalog source): {build_file}")
-    print(f"J1 Previous File: {j1_previous_file}")
+    print(f"J1 Current File: {j1_current_file}")
     print(f"\nCurrent Option Period: {CURRENT_OPT_PD}")
     print("=" * 60)
 
@@ -470,7 +467,7 @@ def main():
 
     # Step 2: Get maximum Price Id
     print("\nStep 2: Finding maximum Price Id...")
-    max_price_id = get_max_price_id(j1_previous_file)
+    max_price_id = get_max_price_id(j1_current_file)
     next_price_id = max_price_id + 1
 
     # Step 3: Categorize entries by TO Period
@@ -480,7 +477,7 @@ def main():
     # Step 4: Append to current OP sheet
     print("\nStep 4: Appending entries to sheets...")
     next_price_id = append_to_j1_sheet(
-        j1_previous_file,
+        j1_current_file,
         f'2B_Opt Pd {CURRENT_OPT_PD} Catalog',
         categorized['pd5'],
         next_price_id
@@ -488,7 +485,7 @@ def main():
 
     # Step 5: Append to future OP sheet
     next_price_id = append_to_j1_sheet(
-        j1_previous_file,
+        j1_current_file,
         f'2C_Opt Pd {CURRENT_OPT_PD + 1}-11 Catalog',
         categorized['pd6_11'],
         next_price_id
@@ -502,7 +499,7 @@ def main():
     print(f"  - TO Period {CURRENT_OPT_PD}: {len(categorized['pd5'])} entries")
     print(f"  - TO Period {CURRENT_OPT_PD + 1}-11: {len(categorized['pd6_11'])} entries")
     print(f"Final Price Id: {next_price_id - 1}")
-    print(f"J1 previous file updated: {j1_previous_file}")
+    print(f"J1 current file updated: {j1_current_file}")
     print("=" * 60)
 
 

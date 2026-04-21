@@ -142,19 +142,18 @@ def load_pricing_method_mapping(build_file_path: Path) -> Dict[str, str]:
 
 def format_date_column(date_value):
     """
-    Convert date from '2026-08-31 0:00:00' format to '8/31/26' format.
+    Convert date from '2026-08-31 0:00:00' format to 'DD-MM-YYYY' format.
     
     Args:
         date_value: Date value in various formats
         
     Returns:
-        Formatted date string in M/D/YY format or original value if not a date
+        Formatted date string in DD-MM-YYYY format or original value if not a date
     """
     if pd.isna(date_value):
         return ""
     
     try:
-        # Convert to datetime if it's a string
         if isinstance(date_value, str):
             date_obj = pd.to_datetime(date_value)
         elif isinstance(date_value, pd.Timestamp):
@@ -162,9 +161,7 @@ def format_date_column(date_value):
         else:
             return date_value
         
-        # Format as M/D/YY (e.g., 8/31/26 or 9/1/25)
-        return date_obj.strftime('%-m/%-d/%y')  # For Unix/Mac
-        # For Windows, use: return date_obj.strftime('%#m/%#d/%y')
+        return date_obj.strftime('%d-%m-%Y')
         
     except:
         return date_value

@@ -371,7 +371,8 @@ def build_FR():
                 merged_record[col] = records[0][col]
             elif col in concat_columns:
                 values = [str(r[col]).strip() for r in records if str(r[col]).strip()]
-                merged_record[col] = "/".join(values) if values else ""
+                unique_values = list(dict.fromkeys(values))
+                merged_record[col] = "/".join(unique_values) if unique_values else ""
             else:
                 values = [str(r[col]).strip() for r in records if str(r[col]).strip()]
                 merged_record[col] = max(values, key=len) if values else ""
