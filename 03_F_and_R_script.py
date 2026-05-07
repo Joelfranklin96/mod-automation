@@ -7,6 +7,9 @@ from collections import defaultdict
 import math
 
 
+# ─── Configuration ────────────────────────────────────────────────────────────
+CURRENT_OPTION_PERIOD = 5
+
 # ─── Paths ────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(r"D:\1_emerjence_work\04_HHS\09_new_mod_automation\Data")
 OUTPUT_DIR = BASE_DIR / "output"
@@ -75,7 +78,7 @@ def extract_comps_data(comps_df):
         source_info = comps_df.get("Source or Networx Information", [""] * num_rows)[i] if "Source or Networx Information" in comps_df else ""
         case_number = comps_df.get("Case Number", [""] * num_rows)[i] if "Case Number" in comps_df else ""
         verizon_case_desc = comps_df.get("Verizon Case Description", [""] * num_rows)[i] if "Verizon Case Description" in comps_df else ""
-        pricing_element = comps_df.get("Pricing Element", [""] * num_rows)[i] if "Pricing Element" in comps_df else ""
+        pricing_element = comps_df.get("SRE Pricing Element", [""] * num_rows)[i] if "SRE Pricing Element" in comps_df else ""
         comp_rate_raw = comps_df.get("Comp Rate", [""] * num_rows)[i] if "Comp Rate" in comps_df else ""
         
         # Convert Comp Rate to float
@@ -140,51 +143,11 @@ def determine_12m_clin(verizon_case_desc):
     return "Yes" if ".ANN." in desc_str.upper() else "No"
 
 
-def build_case_to_pricing_element_lookup(pr_file: Path):
-    """
-    Build a {Case Number -> SRE Pricing Element} lookup from the J1 sheet.
-    Assumes each Case Number maps to exactly one Pricing Element.
-    """
-    lookup = {}
-    try:
-        wb = load_workbook(pr_file, data_only=True)
-        j1_sheet = next((s for s in wb.sheetnames if "j1" in s.lower() or "j.1" in s.lower()), None)
-        if not j1_sheet:
-            wb.close()
-            return lookup
-
-        ws = wb[j1_sheet]
-        headers = {}
-        for idx, cell in enumerate(ws[1], start=1):
-            if cell.value:
-                headers[str(cell.value).strip()] = idx
-
-        if "Case Number" not in headers or "SRE Pricing Element" not in headers:
-            wb.close()
-            return lookup
-
-        case_col = headers["Case Number"]
-        pricing_col = headers["SRE Pricing Element"]
-
-        for row in ws.iter_rows(min_row=2):
-            case_val = row[case_col - 1].value
-            pricing_val = row[pricing_col - 1].value
-            if case_val is not None:
-                case_str = str(case_val).strip()
-                pe_str = str(pricing_val).strip() if pricing_val is not None else ""
-                if case_str and case_str not in lookup:
-                    lookup[case_str] = pe_str
-
-        wb.close()
-    except Exception as e:
-        print(f"  Error building pricing element lookup from {pr_file.name}: {e}")
-    return lookup
-
 
 def get_j1_rate(pr_file: Path, case_number: str, pricing_element: str):
     """
     Extract J1 rate from the J1 worksheet for a given case number and pricing element.
-    Returns the HHS Price as a float for the row where TO Period == "OPT PD 5".
+    Returns the HHS Price as a float for the row where TO Period == "OPT PD {CURRENT_OPTION_PERIOD}".
     """
     try:
         wb = load_workbook(pr_file)
@@ -225,7 +188,7 @@ def get_j1_rate(pr_file: Path, case_number: str, pricing_element: str):
             row_period = str(row[period_col - 1].value).strip() if row[period_col - 1].value else ""
             
             # Match case number, pricing element, and TO Period
-            if row_case == case_number and row_pricing == pricing_element and row_period == "OPT PD 5":
+            if row_case == case_number and row_pricing == pricing_element and row_period == f"OPT PD {CURRENT_OPTION_PERIOD}":
                 hhs_price_cell = row[price_col - 1]
                 
                 if hhs_price_cell.value is None:
@@ -288,19 +251,19 @@ def build_FR():
             if pr not in pr_to_file:
                 pr_to_file[pr] = pr_file
 
-            case_pe_lookup = build_case_to_pricing_element_lookup(pr_file)
             comps_records = extract_comps_data(comps_df)
 
             for rec in comps_records:
                 case_num = rec.get("Case Number", "")
                 case_num_str = str(case_num).strip() if case_num and not (isinstance(case_num, float) and math.isnan(case_num)) else ""
 
-                price_elem_str = case_pe_lookup.get(case_num_str, "")
-                if price_elem_str:
+                price_elem_raw = rec.get("Pricing Element", "")
+                price_elem_str = ""
+                if price_elem_raw:
                     try:
-                        price_elem_str = str(int(float(price_elem_str))).zfill(2)
+                        price_elem_str = str(int(float(price_elem_raw))).zfill(2)
                     except (ValueError, TypeError):
-                        price_elem_str = str(price_elem_str).zfill(2)
+                        price_elem_str = str(price_elem_raw).zfill(2)
 
                 j1_rate_float = get_j1_rate(pr_file, case_num_str, price_elem_str)
                 comp_rate_float = rec.get("Comp Rate")
