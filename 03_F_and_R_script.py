@@ -16,6 +16,18 @@ overview_file = OUTPUT_DIR / "overview_file.xlsx"
 f_r_output_file = OUTPUT_DIR / "f_r_output.xlsx"
 
 
+def _clean(val):
+    """Normalize value to a clean string; blanks / NaN / 'nan' / 'none' become ''."""
+    if val is None:
+        return ""
+    if isinstance(val, float) and math.isnan(val):
+        return ""
+    s = str(val).strip()
+    if s.lower() in ("nan", "none", "<na>"):
+        return ""
+    return s
+
+
 def get_fr_pr_numbers(overview_path: Path):
     """
     Reads the overview file and returns a list of tuples for rows where 'F&R Needed' == 'Yes'.
@@ -32,11 +44,11 @@ def get_fr_pr_numbers(overview_path: Path):
     # Strip whitespace and get required columns
     pr_version_list = list(
         zip(
-            fr_needed["PR#"].astype(str).str.strip(),
-            fr_needed["Version"].astype(str).str.strip(),
-            fr_needed["OpDiv"].astype(str).str.strip() if "OpDiv" in fr_needed.columns else [""] * len(fr_needed),
-            fr_needed["SF30 Description"].astype(str).str.strip() if "SF30 Description" in fr_needed.columns else [""] * len(fr_needed),
-            fr_needed["12M+ CLIN"].astype(str).str.strip() if "12M+ CLIN" in fr_needed.columns else [""] * len(fr_needed),
+            fr_needed["PR#"].map(_clean),
+            fr_needed["Version"].map(_clean),
+            fr_needed["OpDiv"].map(_clean) if "OpDiv" in fr_needed.columns else [""] * len(fr_needed),
+            fr_needed["SF30 Description"].map(_clean) if "SF30 Description" in fr_needed.columns else [""] * len(fr_needed),
+            fr_needed["12M+ CLIN"].map(_clean) if "12M+ CLIN" in fr_needed.columns else [""] * len(fr_needed),
         )
     )
 
@@ -75,11 +87,11 @@ def extract_comps_data(comps_df):
                 comp_rate = None
 
         record = {
-            "Verizon's Response/HHS Comment": verizon_response,
-            "Source or Networx Information": source_info,
-            "Case Number": case_number,
-            "Verizon Case Description": verizon_case_desc,
-            "Pricing Element": pricing_element,
+            "Verizon's Response/HHS Comment": _clean(verizon_response),
+            "Source or Networx Information": _clean(source_info),
+            "Case Number": _clean(case_number),
+            "Verizon Case Description": _clean(verizon_case_desc),
+            "Pricing Element": _clean(pricing_element),
             "Comp Rate": comp_rate,  # Now a float or None
         }
 
@@ -115,6 +127,7 @@ def get_comps_sheet(pr_file: Path):
         return pd.DataFrame()
 
 
+
 def determine_12m_clin(verizon_case_desc):
     """
     Determine 12M+ CLIN based on Verizon Case Description.
@@ -125,6 +138,47 @@ def determine_12m_clin(verizon_case_desc):
     
     desc_str = str(verizon_case_desc).strip()
     return "Yes" if ".ANN." in desc_str.upper() else "No"
+
+
+def build_case_to_pricing_element_lookup(pr_file: Path):
+    """
+    Build a {Case Number -> SRE Pricing Element} lookup from the J1 sheet.
+    Assumes each Case Number maps to exactly one Pricing Element.
+    """
+    lookup = {}
+    try:
+        wb = load_workbook(pr_file, data_only=True)
+        j1_sheet = next((s for s in wb.sheetnames if "j1" in s.lower() or "j.1" in s.lower()), None)
+        if not j1_sheet:
+            wb.close()
+            return lookup
+
+        ws = wb[j1_sheet]
+        headers = {}
+        for idx, cell in enumerate(ws[1], start=1):
+            if cell.value:
+                headers[str(cell.value).strip()] = idx
+
+        if "Case Number" not in headers or "SRE Pricing Element" not in headers:
+            wb.close()
+            return lookup
+
+        case_col = headers["Case Number"]
+        pricing_col = headers["SRE Pricing Element"]
+
+        for row in ws.iter_rows(min_row=2):
+            case_val = row[case_col - 1].value
+            pricing_val = row[pricing_col - 1].value
+            if case_val is not None:
+                case_str = str(case_val).strip()
+                pe_str = str(pricing_val).strip() if pricing_val is not None else ""
+                if case_str and case_str not in lookup:
+                    lookup[case_str] = pe_str
+
+        wb.close()
+    except Exception as e:
+        print(f"  Error building pricing element lookup from {pr_file.name}: {e}")
+    return lookup
 
 
 def get_j1_rate(pr_file: Path, case_number: str, pricing_element: str):
@@ -163,7 +217,11 @@ def get_j1_rate(pr_file: Path, case_number: str, pricing_element: str):
         # Search for matching row
         for row in ws.iter_rows(min_row=2):
             row_case = str(row[case_col - 1].value).strip() if row[case_col - 1].value else ""
-            row_pricing = str(row[pricing_col - 1].value).strip() if row[pricing_col - 1].value else ""
+            raw_pricing = str(row[pricing_col - 1].value).strip() if row[pricing_col - 1].value else ""
+            try:
+                row_pricing = str(int(float(raw_pricing))).zfill(2) if raw_pricing else ""
+            except (ValueError, TypeError):
+                row_pricing = raw_pricing.zfill(2) if raw_pricing else ""
             row_period = str(row[period_col - 1].value).strip() if row[period_col - 1].value else ""
             
             # Match case number, pricing element, and TO Period
@@ -207,6 +265,7 @@ def build_FR():
     # Step 1: Get PRs needing F&R
     fr_pr_list = get_fr_pr_numbers(overview_file)
     fr_overview_records = []
+    pr_to_file = {}
 
     # Step 2: Gather data
     for pr, version, opdiv, sf30_desc, cl12m in fr_pr_list:
@@ -226,21 +285,24 @@ def build_FR():
             if comps_df.empty:
                 continue
 
+            if pr not in pr_to_file:
+                pr_to_file[pr] = pr_file
+
+            case_pe_lookup = build_case_to_pricing_element_lookup(pr_file)
             comps_records = extract_comps_data(comps_df)
 
             for rec in comps_records:
-                price_elem = rec.get("Pricing Element", "")
-                if price_elem is None or (isinstance(price_elem, float) and math.isnan(price_elem)):
-                    price_elem_str = ""
-                else:
-                    try:
-                        price_elem_num = int(float(price_elem))
-                        price_elem_str = str(price_elem_num).zfill(2)
-                    except (ValueError, TypeError):
-                        price_elem_str = str(price_elem).zfill(2)
-
                 case_num = rec.get("Case Number", "")
-                j1_rate_float = get_j1_rate(pr_file, case_num, price_elem_str)
+                case_num_str = str(case_num).strip() if case_num and not (isinstance(case_num, float) and math.isnan(case_num)) else ""
+
+                price_elem_str = case_pe_lookup.get(case_num_str, "")
+                if price_elem_str:
+                    try:
+                        price_elem_str = str(int(float(price_elem_str))).zfill(2)
+                    except (ValueError, TypeError):
+                        price_elem_str = str(price_elem_str).zfill(2)
+
+                j1_rate_float = get_j1_rate(pr_file, case_num_str, price_elem_str)
                 comp_rate_float = rec.get("Comp Rate")
 
                 delta_float = None
@@ -309,7 +371,7 @@ def build_FR():
         "12M+ CLIN"
     ]
 
-    # Create a tab for each PR before merging
+    # Group F&R records by PR for later use in xlwings PR tab creation
     pr_groups = defaultdict(list)
     for rec in fr_overview_records:
         pr_groups[rec["PR#"]].append(rec)
@@ -318,40 +380,7 @@ def build_FR():
     default_ws = wb.active
     wb.remove(default_ws)
 
-    # Create PR tabs
-    for pr, records in pr_groups.items():
-        pr_version = records[0]["Version"]
-        ws_pr = wb.create_sheet(title=f"{pr} v{pr_version}")
-        
-        headers = columns[:9]  # first 9 columns only
-        
-        # Header row
-        for col_idx, header in enumerate(headers, start=1):
-            cell = ws_pr.cell(row=1, column=col_idx, value=header)
-            if col_idx <= 6:
-                cell.fill = green_fill
-                cell.font = black_font
-            elif 7 <= col_idx <= 9:
-                cell.fill = black_fill
-                cell.font = white_font
-            cell.alignment = center_align
-            cell.border = thin_border
-
-        # Data rows
-        for row_idx, record in enumerate(records, start=2):
-            for col_idx, header in enumerate(headers, start=1):
-                value = record.get(header, "")
-                c = ws_pr.cell(row=row_idx, column=col_idx, value=value)
-                c.alignment = Alignment(vertical="center", wrap_text=True)
-                c.border = thin_border
-
-        # Auto-width
-        for col in ws_pr.columns:
-            max_len = max(len(str(cell.value)) if cell.value else 0 for cell in col)
-            ws_pr.column_dimensions[col[0].column_letter].width = max(12, min(max_len + 3, 45))
-        ws_pr.freeze_panes = "A2"
-
-    # Now proceed to merge duplicates and create Overview tab
+    # Merge duplicates and create Overview tab
     merged_records = []
     merge_key_columns = ("Case Number", "Pricing Element")
     concat_columns = {
@@ -422,8 +451,133 @@ def build_FR():
     ws.freeze_panes = "A2"
 
     wb.save(f_r_output_file)
+    print(f"\nOverview tab created. Now adding PR tabs with images via xlwings...")
+
+    # Step 3: Use xlwings to create PR tabs by copying COMP sheets from PR files
+    _create_pr_tabs_xlwings(pr_groups, pr_to_file, columns[:9], f_r_output_file)
+
     print(f"\nF&R Overview document created with PR tabs and merged duplicates: {f_r_output_file}")
     return f_r_output_file
+
+
+def _create_pr_tabs_xlwings(pr_groups, pr_to_file, fr_headers, output_file):
+    """
+    For each PR needing F&R:
+    1. Copy the COMP sheet from the PR file into f_r_output as a new tab
+    2. Delete the original Comps header + data rows
+    3. Insert F&R header and data rows at the top
+    Images in the COMP sheet are preserved automatically.
+    """
+    import xlwings as xw
+
+    currency_cols = {"J.1 Rate", "Comp Rate", "Delta"}
+    currency_fmt = '$#,##0.000000'
+
+    def _parse_currency(val):
+        """Strip '$' and commas to recover the raw float."""
+        if not val or not isinstance(val, str):
+            return val
+        stripped = val.replace("$", "").replace(",", "").strip()
+        if not stripped:
+            return ""
+        try:
+            return round(float(stripped), 6)
+        except (ValueError, TypeError):
+            return val
+
+    app = xw.App(visible=False, add_book=False)
+    try:
+        wb_output = app.books.open(str(output_file))
+
+        for pr, records in pr_groups.items():
+            pr_file = pr_to_file.get(pr)
+            if not pr_file:
+                print(f"  No PR file found for {pr}, skipping PR tab")
+                continue
+
+            pr_version = records[0]["Version"]
+            tab_name = f"{pr} v{pr_version}"
+            print(f"  Creating tab: {tab_name}")
+
+            # Open PR file and find Comps sheet
+            wb_pr = app.books.open(str(pr_file), read_only=True)
+            comps_sheet = None
+            for sht in wb_pr.sheets:
+                if "comp" in sht.name.lower():
+                    comps_sheet = sht
+                    break
+
+            if comps_sheet is None:
+                print(f"    No COMP sheet found in {pr_file.name}")
+                wb_pr.close()
+                continue
+
+            # Copy the COMP sheet to the output workbook
+            comps_sheet.copy(after=wb_output.sheets[-1])
+            wb_pr.close()
+
+            # Rename the copied sheet
+            new_sheet = wb_output.sheets[-1]
+            new_sheet.name = tab_name
+
+            # Find the end of the original Comps data (first fully empty row)
+            used = new_sheet.used_range
+            comps_data_end = 0
+            for row_num in range(1, used.rows.count + 1):
+                row_vals = new_sheet.range((row_num, 1), (row_num, used.columns.count)).value
+                if row_vals is None:
+                    break
+                if isinstance(row_vals, list):
+                    if all(v is None for v in row_vals):
+                        break
+                comps_data_end = row_num
+
+            # Delete the original Comps data rows (header + data)
+            if comps_data_end > 0:
+                new_sheet.range(f"1:{comps_data_end}").delete()
+
+            # Insert blank rows at the top for F&R header + data
+            num_fr_rows = 1 + len(records)  # 1 header + N data rows
+            new_sheet.range(f"1:{num_fr_rows}").insert(shift='down')
+
+            # Write F&R header row
+            for col_idx, header in enumerate(fr_headers):
+                cell = new_sheet.range((1, col_idx + 1))
+                cell.value = header
+                cell.font.bold = True
+                if col_idx < 6:
+                    cell.color = (146, 208, 80)  # green
+                else:
+                    cell.color = (0, 0, 0)  # black
+                    cell.font.color = (255, 255, 255)  # white text
+
+            # Write F&R data rows
+            for row_idx, record in enumerate(records, start=2):
+                for col_idx, header in enumerate(fr_headers):
+                    value = record.get(header, "")
+                    cell = new_sheet.range((row_idx, col_idx + 1))
+                    if header in currency_cols:
+                        cell.value = _parse_currency(value)
+                        if cell.value != "" and cell.value is not None:
+                            cell.number_format = currency_fmt
+                    else:
+                        cell.value = value
+
+            # Apply borders to F&R header + data range
+            last_row = 1 + len(records)
+            last_col = len(fr_headers)
+            fr_range = new_sheet.range((1, 1), (last_row, last_col))
+            for border_id in range(7, 13):
+                fr_range.api.Borders(border_id).LineStyle = 1  # xlContinuous
+                fr_range.api.Borders(border_id).Weight = 2     # xlThin
+
+            # Auto-fit columns
+            new_sheet.autofit('c')
+
+        wb_output.save()
+        wb_output.close()
+    finally:
+        app.quit()
 
 
 if __name__ == "__main__":
